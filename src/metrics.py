@@ -126,6 +126,24 @@ def aging_buckets(df: pd.DataFrame, today: date) -> pd.DataFrame:
     return grouped[nonzero_buckets].reset_index(drop=True)
 
 
+def overdue_items(df: pd.DataFrame, today: date) -> pd.DataFrame:
+    """The late (overdue) PM rows with a `days_overdue` column, most-late first.
+
+    A PM is late when its due_date is strictly before `today`. Rows with no due
+    date are not late. Returns an empty frame (with a days_overdue column) when
+    nothing is overdue.
+    """
+    pm = _pm_only(df).copy()
+    if pm.empty or C.DUE_DATE not in pm.columns:
+        out = pm.iloc[0:0].copy()
+        out["days_overdue"] = pd.Series(dtype="int64")
+        return out
+    d = days_until_due(pm, today)
+    late = pm[d < 0].copy()
+    late["days_overdue"] = (-d[d < 0]).astype(int)
+    return late.sort_values("days_overdue", ascending=False).reset_index(drop=True)
+
+
 def count_by(df: pd.DataFrame, column: str, top_n: int | None = None) -> pd.DataFrame:
     """Tidy [<column>, count] over PM rows, descending, blanks dropped."""
     pm = _pm_only(df)
