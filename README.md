@@ -89,10 +89,15 @@ streamlit run app.py
 ```
 
 The app shows: KPI cards (active PMs, Maintenance, Mechatronics, overdue count/%,
-due today/week/month), a **shift-completions** section, a Maintenance-vs-Mechatronics
-split, an aging-by-due-date chart, top assets, an assigned-week trend, a data-quality
-panel, and a filterable, downloadable detail table. With no CSV present it shows the
-Mode A instructions.
+due today/week/month), a **Late (overdue) PMs** list, a **shift-completions** section,
+a Maintenance-vs-Mechatronics split, an aging-by-due-date chart, top assets, an
+assigned-week trend, a data-quality panel, and a filterable, downloadable detail
+table. With no CSV present it shows the Mode A instructions.
+
+The **Late (overdue) PMs** panel lists every PM whose due date has passed — sorted
+most-late-first with a "days late" column, split by stream, and downloadable as CSV.
+It honours the sidebar stream/asset/priority filters but ignores the due-date-window
+filter, so late work is always visible.
 
 **Updating the data, from the app:**
 

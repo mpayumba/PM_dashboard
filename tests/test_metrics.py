@@ -1,6 +1,8 @@
 """Metrics tests — counts, overdue logic, aging buckets, breakdowns."""
 from __future__ import annotations
 
+from datetime import date
+
 import pandas as pd
 
 from src import config as C
@@ -81,6 +83,35 @@ def test_trend_by_week(reference_today):
     trend = metrics.trend_by_week(_frame(), reference_today)
     assert trend["count"].sum() == 6  # all PM rows have a created_date
     assert "week" in trend.columns
+
+
+def test_overdue_items(reference_today):
+    late = metrics.overdue_items(_frame(), reference_today)
+    assert len(late) == 1                       # only the 2026-06-15 PM row
+    assert late.iloc[0]["days_overdue"] == 4
+    assert late.iloc[0]["pm_stream"] == STREAM_MAINTENANCE
+    assert "days_overdue" in late.columns
+    # non-PM overdue row (2026-06-10) must be excluded
+    assert (late["pm_stream"].astype(str) != STREAM_NON_PM).all()
+
+
+def test_overdue_items_sorted_most_late_first():
+    today = date(2026, 6, 19)
+    rows = [
+        (STREAM_MAINTENANCE, True, "2026-06-17", "A"),  # 2 days late
+        (STREAM_MECHATRONICS, True, "2026-06-10", "B"),  # 9 days late
+        (STREAM_MAINTENANCE, True, "2026-06-18", "C"),  # 1 day late
+    ]
+    df = pd.DataFrame(rows, columns=["pm_stream", "is_pm", C.DUE_DATE, C.ASSET])
+    df[C.DUE_DATE] = pd.to_datetime(df[C.DUE_DATE])
+    late = metrics.overdue_items(df, today)
+    assert list(late["days_overdue"]) == [9, 2, 1]
+
+
+def test_overdue_items_empty_when_none_late():
+    late = metrics.overdue_items(_frame(), date(2026, 1, 1))  # everything due later
+    assert late.empty
+    assert "days_overdue" in late.columns
 
 
 def test_empty_frame_is_safe(reference_today):

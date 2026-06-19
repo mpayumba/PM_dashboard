@@ -179,26 +179,30 @@ def main():
     )
     _autorefresh_watcher()
 
-    # Apply filters.
-    mask = pm["pm_stream"].astype(str).isin(chosen_streams)
+    # Apply filters. base_mask = stream/asset/tech/priority (NOT the due window),
+    # so the Late-PMs section below stays visible regardless of the due-window pick.
+    base_mask = pm["pm_stream"].astype(str).isin(chosen_streams)
     if chosen_assets is not None:
-        mask &= pm[C.ASSET].astype(str).str.strip().isin(chosen_assets)
+        base_mask &= pm[C.ASSET].astype(str).str.strip().isin(chosen_assets)
     if chosen_tech is not None:
-        mask &= pm[tech_col].astype(str).str.strip().isin(chosen_tech)
+        base_mask &= pm[tech_col].astype(str).str.strip().isin(chosen_tech)
     if chosen_priority is not None:
-        mask &= pm[C.PRIORITY].astype(str).str.strip().isin(chosen_priority)
+        base_mask &= pm[C.PRIORITY].astype(str).str.strip().isin(chosen_priority)
+
+    base_pm = pm[base_mask].copy()  # honours every filter except the due-date window
 
     d = metrics.days_until_due(pm, as_of)
+    win_mask = pd.Series(True, index=pm.index)
     if due_window == "Overdue":
-        mask &= d < 0
+        win_mask = d < 0
     elif due_window == "Due ≤7 days":
-        mask &= (d >= 0) & (d <= 7)
+        win_mask = (d >= 0) & (d <= 7)
     elif due_window == "Due ≤30 days":
-        mask &= (d >= 0) & (d <= 30)
+        win_mask = (d >= 0) & (d <= 30)
     elif due_window == "No due date":
-        mask &= d.isna()
+        win_mask = d.isna()
 
-    fpm = pm[mask].copy()  # filtered PM frame used for all charts/tables
+    fpm = pm[base_mask & win_mask].copy()  # filtered PM frame used for all charts/tables
 
     # ---- KPI row ---------------------------------------------------------
     k = metrics.kpi_summary(df, as_of)  # headline KPIs use the full unfiltered set
@@ -216,6 +220,37 @@ def main():
     cc4.metric("Non-PM active rows", k["non_pm"])
 
     st.caption(f"Showing **{len(fpm)}** of {k['total_pm']} active PM work orders after filters · as-of **{as_of:%Y-%m-%d}**")
+    st.divider()
+
+    # ---- Late (overdue) PMs ---------------------------------------------
+    # Uses base_pm so the due-window filter never hides the late list.
+    st.subheader("⚠️ Late (overdue) PMs")
+    late = metrics.overdue_items(base_pm, as_of)
+    if late.empty:
+        st.success("No overdue PM work orders in the current view. 🎉")
+    else:
+        by_late = late["pm_stream"].astype(str).value_counts()
+        lc1, lc2, lc3 = st.columns(3)
+        lc1.metric("Late PMs", len(late))
+        lc2.metric("• Maintenance", int(by_late.get(STREAM_MAINTENANCE, 0)))
+        lc3.metric("• Mechatronics", int(by_late.get(STREAM_MECHATRONICS, 0)))
+        late_title = C.TITLE + "_raw" if (C.TITLE + "_raw") in late.columns else C.TITLE
+        late_cols = [c for c in [C.WORK_ORDER_ID, late_title, "pm_stream", "days_overdue",
+                                 C.DUE_DATE, C.PRIORITY, C.ASSET] if c in late.columns]
+        late_view = late[late_cols]
+        st.dataframe(
+            late_view, width="stretch", hide_index=True,
+            column_config={
+                "days_overdue": st.column_config.NumberColumn("Days late", format="%d d"),
+                C.DUE_DATE: st.column_config.DatetimeColumn("Due", format="YYYY-MM-DD"),
+                late_title: st.column_config.TextColumn("Title", width="large"),
+            },
+        )
+        st.download_button(
+            "⬇️ Download late PMs (CSV)",
+            data=late_view.to_csv(index=False).encode("utf-8"),
+            file_name="late_pms.csv", mime="text/csv", key="dl_late",
+        )
     st.divider()
 
     # ---- Shift completions ----------------------------------------------
