@@ -1,0 +1,37 @@
+# Data — never commit internal work-order exports (employee names, asset details).
+# Ignore directory CONTENTS but keep the (empty) folders via .gitkeep so the
+# structure survives a fresh clone.
+data/raw/*
+data/processed/*
+data/sample/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/sample/.gitkeep
+*.csv
+*.parquet
+*.xlsx
+*.sqlite
+*.sqlite3
+*.log
+
+# Python / conda
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+.conda/
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# Secrets & local state
+.env
+.streamlit/secrets.toml
+playwright/.auth/
+auth_state.json
+.claude/settings.local.json
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

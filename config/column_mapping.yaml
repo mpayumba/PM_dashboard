@@ -1,0 +1,56 @@
+# Column mapping for Heliene Asset Essentials work-order exports.
+#
+# Populated from a REAL export inspected in Phase 2 (schema discovery):
+#   data/raw/Work_Order_(06_17_2026_02_49_39_PM).csv
+#   Actual headers observed (9 columns, BOM-prefixed):
+#     'Work Order #', 'Title', 'WO Status', 'Priority', 'Origin',
+#     'Source Asset', 'Source User', 'Assigned', 'Expected'
+#
+# The KEYS below are the canonical internal names the code uses everywhere.
+# The VALUES are the actual headers from the export. Set a value to `null`
+# when the export does not contain that column — the code degrades gracefully
+# (it skips charts/metrics that depend on missing columns rather than crashing).
+
+columns:
+  work_order_id: "Work Order #"
+  title:         "Title"
+  status:        "WO Status"
+  priority:      "Priority"
+  asset:         "Source Asset"
+  due_date:      "Expected"        # expected-completion datetime == due date
+  created_date:  "Assigned"        # datetime the WO was assigned/scheduled; best available age/creation proxy
+
+  # Extra columns present in this export, kept because they are useful:
+  origin:        "Origin"          # WO source module; "PM" for every active row in this export
+  requested_by:  "Source User"     # the planner who generated the WO (a single internal user across all rows in this export); NOT the technician
+
+  # Columns the spec template expects but that are NOT in this export.
+  # Leave as null; the dashboard shows an informational note instead of an empty chart.
+  assigned_to:   null              # no per-technician/assignee column in the saved view's export
+  location:      null              # no location/area column in this export
+
+read:
+  # The header row carries a UTF-8 BOM (﻿), so always read with utf-8-sig.
+  encoding: "utf-8-sig"
+
+filters:
+  # Active work orders. In this export the status renders as "040 SCHEDULED".
+  # The code matches on the LEADING numeric code, so "040", "40",
+  # "040 SCHEDULED", and "40 - Scheduled" all match this value.
+  active_status_value: "040"
+
+classification:
+  # Word-boundary, case-insensitive regexes validated against the 55 real titles.
+  # \bPM\b correctly EXCLUDES EQUIPMENT / PUMP / RPM / PPM / PMP and only matches
+  # the standalone "PM" token. \bPM-ME\b identifies the Mechatronics stream.
+  pm_pattern:  '\bPM\b'        # any PM work order
+  me_pattern:  '\bPM-ME\b'     # Mechatronics (ME) PM work order
+
+  # Data-quality reconciliation. When true, rows the CMMS marks as PM-origin
+  # (origin == origin_pm_value) but whose TITLE does not match pm_pattern are
+  # surfaced in a "data quality" panel rather than silently dropped. These are
+  # typically source-data typos (e.g. "MonthlyPM" missing a space) or titles
+  # that omit the PM token entirely. They are NOT auto-reclassified, because the
+  # Maintenance-vs-Mechatronics stream is not recoverable from such titles.
+  flag_origin_pm_mismatch: true
+  origin_pm_value: "PM"
