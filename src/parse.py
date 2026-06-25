@@ -1,7 +1,7 @@
 """Type coercion, date parsing, cleaning, and active-status filtering.
 
 Pipeline: raw export (all strings) -> canonical columns -> typed/cleaned ->
-filtered to active (status 040). Pure functions so each step is unit-testable.
+filtered to active (status 040/041). Pure functions so each step is unit-testable.
 """
 from __future__ import annotations
 
@@ -81,19 +81,19 @@ def coerce_types(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
 
 
 def filter_active(df: pd.DataFrame, config: Config) -> pd.DataFrame:
-    """Keep only rows whose status matches the active code (e.g. 040).
+    """Keep only rows whose status is one of the active (open) codes (e.g. 040, 041).
 
     Tolerant of representation: matches on the leading integer code so that
-    "040", "40", "040 SCHEDULED", and "40 - Scheduled" all count as active.
+    "040", "40", "040 SCHEDULED", and "041 IN PROGRESS" all count as active.
     If the status column is absent, the frame is returned unchanged (the saved
     view is assumed to have pre-filtered).
     """
     if C.STATUS not in df.columns:
         return df
-    target = config.active_status_code()
+    targets = config.active_status_codes()
     leading = df[C.STATUS].astype(str).str.extract(r"\s*(\d+)", expand=False)
     code = pd.to_numeric(leading, errors="coerce")
-    return df[code == target].copy()
+    return df[code.isin(targets)].copy()
 
 
 def process(df: pd.DataFrame, config: Config) -> tuple[pd.DataFrame, dict]:

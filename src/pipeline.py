@@ -19,7 +19,7 @@ from .config import Config, load_config
 @dataclass
 class Dataset:
     df: pd.DataFrame                 # active, classified work orders
-    mismatch: pd.DataFrame          # PM-origin rows whose title didn't classify
+    quality: pd.DataFrame           # PMs whose title lacks a PM token (info only)
     source_path: str | None
     source_name: str | None
     source_modified: datetime | None
@@ -30,10 +30,10 @@ class Dataset:
 def _assemble(raw_df, source_name, source_path, source_modified, config) -> Dataset:
     active, report = parse.process(raw_df, config)
     classified = classify.add_classification(active, config)
-    mismatch = classify.origin_pm_mismatch(classified, config)
+    quality = classify.pm_without_title_token(classified, config)
     return Dataset(
         df=classified,
-        mismatch=mismatch,
+        quality=quality,
         source_path=source_path,
         source_name=source_name,
         source_modified=source_modified,

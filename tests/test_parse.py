@@ -66,6 +66,12 @@ def test_filter_active_tolerant_of_status_representations(cfg):
     assert len(active) == 3  # first three are code 40
 
 
+def test_filter_active_includes_041_in_progress(cfg):
+    df = pd.DataFrame({C.STATUS: ["040 SCHEDULED", "041 IN PROGRESS", "050 COMPLETE"]})
+    active = filter_active(df, cfg)
+    assert len(active) == 2  # 040 + 041 are open; 050 (complete) dropped
+
+
 def test_process_end_to_end(cfg):
     out, report = process(_raw(), cfg)
     assert report["rows_total"] == 3

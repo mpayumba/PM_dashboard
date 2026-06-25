@@ -1,15 +1,19 @@
-"""PM vs PM-ME classification.
+"""PM vs Non-PM classification, and the Maintenance / Mechatronics split.
 
-Rules (order-sensitive, case-insensitive, word-boundary regex), validated
-against the real export titles in Phase 2:
+PM vs Non-PM:
+    classify_by == "origin"  ->  is_pm = (origin == origin_pm_value)   [authoritative]
+    classify_by == "title"   ->  is_pm = title matches pm_pattern (\\bPM\\b)
+The export tags every work order "PM" or "Non-PM" in its Origin column, so Origin
+is the reliable signal. If origin mode is selected but the export has no Origin
+column, the code falls back to the title rule automatically.
 
-    is_mechatronics_pm = title matches me_pattern   (\\bPM-ME\\b)
-    is_maintenance_pm  = title matches pm_pattern (\\bPM\\b) AND NOT mechatronics
-    is_pm              = is_mechatronics_pm OR is_maintenance_pm
+Maintenance vs Mechatronics (within PMs) — title only:
+    is_mechatronics_pm = is_pm AND title matches me_pattern (\\bPM-ME\\b)
+    is_maintenance_pm  = is_pm AND NOT mechatronics
     pm_stream          = {Mechatronics, Maintenance, Non-PM}
 
-Word boundaries keep "EQUIPMENT", "PUMP", "RPM", "PPM", "PMP" out, and the
-AND-NOT ordering guarantees a PM-ME row is never also counted as Maintenance.
+Word boundaries keep "EQUIPMENT", "PUMP", "RPM", "PPM", "PMP" out of the title
+rule, and the AND-NOT ordering guarantees a PM-ME row is never also Maintenance.
 """
 from __future__ import annotations
 
@@ -24,18 +28,26 @@ STREAM_NON_PM = "Non-PM"
 STREAM_ORDER = (STREAM_MAINTENANCE, STREAM_MECHATRONICS, STREAM_NON_PM)
 
 
+def _is_pm_series(df: pd.DataFrame, titles: pd.Series, config: Config) -> pd.Series:
+    """PM membership per row: Origin-based when available, else title-based."""
+    if config.classify_by == "origin" and C.ORIGIN in df.columns:
+        origin = df[C.ORIGIN].fillna("").astype(str).str.strip().str.upper()
+        return origin == config.origin_pm_value.strip().upper()
+    return titles.str.contains(config.pm_regex)
+
+
 def add_classification(df: pd.DataFrame, config: Config) -> pd.DataFrame:
     """Add is_mechatronics_pm, is_maintenance_pm, is_pm and pm_stream columns."""
     out = df.copy()
     titles = out[C.TITLE].fillna("").astype(str) if C.TITLE in out.columns else pd.Series("", index=out.index)
 
-    is_me = titles.str.contains(config.me_regex)
-    is_pm_any = titles.str.contains(config.pm_regex)
-    is_maint = is_pm_any & ~is_me
+    is_pm = _is_pm_series(out, titles, config)
+    is_me = is_pm & titles.str.contains(config.me_regex)
+    is_maint = is_pm & ~is_me
 
     out["is_mechatronics_pm"] = is_me
     out["is_maintenance_pm"] = is_maint
-    out["is_pm"] = is_me | is_maint
+    out["is_pm"] = is_pm
 
     stream = pd.Series(STREAM_NON_PM, index=out.index, dtype="object")
     stream[is_maint] = STREAM_MAINTENANCE
@@ -45,15 +57,15 @@ def add_classification(df: pd.DataFrame, config: Config) -> pd.DataFrame:
     return out
 
 
-def origin_pm_mismatch(df: pd.DataFrame, config: Config) -> pd.DataFrame:
-    """Rows the CMMS marks as PM-origin but whose title did not classify as PM.
+def pm_without_title_token(df: pd.DataFrame, config: Config) -> pd.DataFrame:
+    """PMs whose title contains no `PM`/`PM-ME` token (classified via Origin only).
 
-    These are surfaced (not dropped, not reclassified) as data-quality items —
-    typically title typos like "MonthlyPM" or titles missing the PM token.
-    Returns an empty frame when the check is disabled or origin is unavailable.
+    Purely informational: these are correctly counted as Maintenance PMs, but their
+    titles could be improved to include the PM token. Empty when classification is
+    title-based (in that mode every PM by definition has a PM token).
     """
-    if not config.flag_origin_pm_mismatch or C.ORIGIN not in df.columns:
+    if "is_pm" not in df.columns or C.TITLE not in df.columns:
         return df.iloc[0:0]
-    origin = df[C.ORIGIN].astype(str).str.strip().str.upper()
-    is_pm_origin = origin == config.origin_pm_value.strip().upper()
-    return df[is_pm_origin & ~df["is_pm"]].copy()
+    titles = df[C.TITLE].fillna("").astype(str)
+    has_token = titles.str.contains(config.pm_regex) | titles.str.contains(config.me_regex)
+    return df[df["is_pm"] & ~has_token].copy()
