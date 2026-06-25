@@ -10,9 +10,6 @@ data/sample/*
 *.csv
 *.parquet
 *.xlsx
-*.sqlite
-*.sqlite3
-*.log
 
 # Python / conda
 __pycache__/
@@ -27,8 +24,6 @@ __pycache__/
 # Secrets & local state
 .env
 .streamlit/secrets.toml
-playwright/.auth/
-auth_state.json
 .claude/settings.local.json
 
 # OS / editor

@@ -1,4 +1,4 @@
-"""Metrics tests — counts, overdue logic, aging buckets, breakdowns."""
+"""Metrics tests — counts, overdue logic, per-tab stats, due-date ordering."""
 from __future__ import annotations
 
 from datetime import date
@@ -59,30 +59,37 @@ def test_stream_counts(reference_today):
     assert counts == {STREAM_MAINTENANCE: 3, STREAM_MECHATRONICS: 3}
 
 
-def test_aging_buckets_partition(reference_today):
-    ab = metrics.aging_buckets(_frame(), reference_today)
-    total = ab["count"].sum()
-    assert total == 6  # all PM rows accounted for, none dropped
-    by_bucket = ab.groupby("bucket", observed=True)["count"].sum().to_dict()
-    assert by_bucket[metrics.AGING_OVERDUE] == 1
-    assert by_bucket[metrics.AGING_0_7] == 2     # due today + +3
-    assert by_bucket[metrics.AGING_8_30] == 1
-    assert by_bucket[metrics.AGING_30_PLUS] == 1
-    assert by_bucket[metrics.AGING_NO_DATE] == 1
+def test_summary_stats_over_full_pm_set(reference_today):
+    s = metrics.summary_stats(_frame(), reference_today)
+    assert s["total"] == 6          # PM rows only (non-PM excluded)
+    assert s["late"] == 1
+    assert s["overdue_pct"] == round(100 / 6, 1)
+    assert s["due_this_week"] == 2
 
 
-def test_count_by_asset_drops_blanks(reference_today):
-    by_asset = metrics.count_by(_frame(), C.ASSET)
-    assets = dict(zip(by_asset[C.ASSET], by_asset["count"]))
-    assert assets["Station A"] == 2
-    assert assets["Unit 1"] == 2
-    assert "" not in assets  # blank asset (the non-PM row) excluded
+def test_summary_stats_on_stream_subset(reference_today):
+    df = _frame()
+    maint = df[(df["is_pm"]) & (df["pm_stream"].astype(str) == STREAM_MAINTENANCE)]
+    s = metrics.summary_stats(maint, reference_today)
+    assert s["total"] == 3          # 3 maintenance PMs
+    assert s["late"] == 1           # the 2026-06-15 maintenance row
 
 
-def test_trend_by_week(reference_today):
-    trend = metrics.trend_by_week(_frame(), reference_today)
-    assert trend["count"].sum() == 6  # all PM rows have a created_date
-    assert "week" in trend.columns
+def test_by_due_date_orders_overdue_first_nodate_last(reference_today):
+    ordered = metrics.by_due_date(_frame(), reference_today)
+    assert len(ordered) == 6        # PM rows only
+    assert "days_until_due" in ordered.columns
+    assert ordered.iloc[0]["days_until_due"] == -4   # most overdue first
+    # the no-due-date row sorts last
+    assert pd.isna(ordered.iloc[-1][C.DUE_DATE])
+
+
+def test_by_due_date_without_due_date_column(reference_today):
+    # An export missing the due_date column must degrade, not crash.
+    df = pd.DataFrame({"pm_stream": [STREAM_MAINTENANCE, STREAM_MECHATRONICS], "is_pm": [True, True]})
+    out = metrics.by_due_date(df, reference_today)
+    assert len(out) == 2
+    assert out["days_until_due"].isna().all()
 
 
 def test_overdue_items(reference_today):
@@ -117,5 +124,6 @@ def test_overdue_items_empty_when_none_late():
 def test_empty_frame_is_safe(reference_today):
     empty = _frame().iloc[0:0]
     assert metrics.kpi_summary(empty, reference_today)["total_pm"] == 0
+    assert metrics.summary_stats(empty, reference_today)["total"] == 0
     assert metrics.stream_counts(empty).empty
-    assert metrics.aging_buckets(empty, reference_today).empty
+    assert metrics.by_due_date(empty, reference_today).empty

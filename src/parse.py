@@ -5,8 +5,6 @@ filtered to active (status 040). Pure functions so each step is unit-testable.
 """
 from __future__ import annotations
 
-import os
-
 import pandas as pd
 
 from . import config as C
@@ -16,13 +14,6 @@ from .config import Config
 # We try this first (fast, unambiguous) and fall back to dateutil for anything
 # that doesn't match, so other export date formats still parse.
 _KNOWN_DATE_FORMAT = "%m/%d/%Y %I:%M:%S %p"
-
-PROCESSED_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "data",
-    "processed",
-    "active_work_orders.parquet",
-)
 
 
 def to_canonical(df: pd.DataFrame, config: Config) -> pd.DataFrame:
@@ -115,10 +106,3 @@ def process(df: pd.DataFrame, config: Config) -> tuple[pd.DataFrame, dict]:
     report["rows_active"] = len(active)
     report["rows_dropped_inactive"] = before - len(active)
     return active.reset_index(drop=True), report
-
-
-def write_processed(df: pd.DataFrame, path: str = PROCESSED_PATH) -> str:
-    """Persist the cleaned snapshot to parquet (gitignored)."""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    df.to_parquet(path, index=False)
-    return path
