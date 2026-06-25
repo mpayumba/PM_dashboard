@@ -16,7 +16,8 @@ Three tabs, each with summary statistics and a work-order list **ordered by due
 date** (overdue first):
 
 - **All PMs** — totals, Maintenance vs Mechatronics split, late count, overdue %,
-  due ≤7 days, plus a data-quality note for any unclassifiable PM-origin rows.
+  due ≤7 days, plus a data-quality note for any PMs (by Origin) whose title lacks a
+  `PM`/`PM-ME` token.
 - **Maintenance** — total PMs, late (overdue) count, overdue %, due ≤7 days, and the
   Maintenance work orders by due date.
 - **Mechatronics** — the same, scoped to the Mechatronics (PM-ME) stream.
@@ -27,28 +28,28 @@ Each list is downloadable as CSV.
 
 ## Classification rules
 
-The only reliable signal distinguishing the two streams is the **work-order title**:
+**PM vs Non-PM comes from the CMMS `Origin` column** (authoritative) — the export
+tags every work order `PM` or `Non-PM`. The **title** is then used only to split PMs
+into the two streams:
 
-| Stream           | Rule (case-insensitive, word-boundary regex)                |
-|------------------|-------------------------------------------------------------|
-| **Mechatronics** | title matches `\bPM-ME\b`                                    |
-| **Maintenance**  | title matches `\bPM\b` **and not** `\bPM-ME\b`              |
-| **Non-PM**       | neither matches                                             |
+| Stream           | Rule                                                              |
+|------------------|------------------------------------------------------------------|
+| **Mechatronics** | `Origin == PM` **and** title matches `\bPM-ME\b`                  |
+| **Maintenance**  | `Origin == PM` **and not** `\bPM-ME\b`                            |
+| **Non-PM**       | `Origin != PM` (excluded from all three tabs)                     |
 
-Word boundaries matter: the substring `PM` appears inside ordinary words
-(`EQUIPMENT`, `PUMP`, `RPM`, `PPM`, `PMP`), so a naive `"PM" in title` check is
-wrong. These regexes produce no such false positives and never double-count a
-`PM-ME` row as Maintenance. They live in
-[`config/column_mapping.yaml`](config/column_mapping.yaml) and can be edited without
-touching code.
+This is more accurate than reading the title alone: some real PMs have titles with
+no `PM` token (e.g. `… Monthly`, `… Annual Calibration`) — Origin still catches them
+(counted as Maintenance), and they're flagged in a small data-quality note on the
+All tab. The Mechatronics regex uses a word boundary (`\bPM-ME\b`), and if a future
+export lacks the `Origin` column the code falls back to a title rule (`\bPM\b`, which
+excludes `EQUIPMENT`/`PUMP`/`RPM`/`PPM`/`PMP`). All of this is configured in
+[`config/column_mapping.yaml`](config/column_mapping.yaml) (`classify_by`,
+`origin_pm_value`, `me_pattern`, `pm_pattern`).
 
-**Active filter:** only work orders with status code **`040`** are kept (the CMMS
-renders this as `040 SCHEDULED`); the match is on the leading code, so `040`, `40`,
-and `040 SCHEDULED` all count.
-
-**Data quality:** PM-origin work orders whose title doesn't contain a clean PM token
-(e.g. a typo like `MonthlyPM`) are surfaced in a panel on the All tab — never
-silently dropped, never auto-reclassified.
+**Active filter:** open work orders with status code **`040` (scheduled)** or **`041`
+(in progress)** are kept; completed codes are excluded. Matching is on the leading
+code, so `040`, `40`, `040 SCHEDULED`, and `041 IN PROGRESS` all count.
 
 ---
 
@@ -110,8 +111,8 @@ PM_dashboard/
 ├── src/
 │   ├── config.py               # loads column_mapping.yaml
 │   ├── ingest.py               # find & load the latest raw CSV (data/raw fallback)
-│   ├── parse.py                # canonical rename, date coercion, 040 filter
-│   ├── classify.py             # PM vs PM-ME classification
+│   ├── parse.py                # canonical rename, date coercion, active (040/041) filter
+│   ├── classify.py             # PM vs Non-PM (Origin), then Maintenance vs Mechatronics (title PM-ME)
 │   ├── metrics.py              # summary stats + due-date ordering (pure, testable)
 │   └── pipeline.py             # build a dataset from an uploaded CSV or data/raw
 ├── scripts/

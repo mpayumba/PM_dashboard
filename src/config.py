@@ -43,11 +43,11 @@ class Config:
     # canonical_name -> raw header (only entries whose YAML value is non-null)
     columns: dict
     encoding: str
-    active_status_value: str
+    active_status_values: tuple   # one or more open-status codes, e.g. ("040", "041")
+    classify_by: str             # "origin" (authoritative) or "title" (fallback)
+    origin_pm_value: str
     pm_pattern: str
     me_pattern: str
-    flag_origin_pm_mismatch: bool
-    origin_pm_value: str
     raw: dict = field(default_factory=dict, repr=False)
 
     # --- compiled regexes -------------------------------------------------
@@ -68,9 +68,9 @@ class Config:
         """True if this canonical column is mapped to a non-null header."""
         return canonical in self.columns
 
-    def active_status_code(self) -> int:
-        """Active status as an int (e.g. '040' -> 40) for tolerant matching."""
-        return _leading_int(self.active_status_value)
+    def active_status_codes(self) -> set:
+        """Active statuses as ints (e.g. {'040','041'} -> {40, 41}) for tolerant matching."""
+        return {_leading_int(v) for v in self.active_status_values}
 
 
 def _leading_int(value) -> int:
@@ -97,13 +97,21 @@ def load_config(path: str = DEFAULT_CONFIG_PATH) -> Config:
     filters = data.get("filters", {}) or {}
     classification = data.get("classification", {}) or {}
 
+    # Accept either active_status_values (list) or the legacy active_status_value
+    # (scalar). An empty/blank list falls back to the scalar default too, so a
+    # blanked filter can't silently drop every row.
+    values = filters.get("active_status_values")
+    if not values:
+        values = [filters.get("active_status_value", "040")]
+    active_status_values = tuple(str(v) for v in values)
+
     return Config(
         columns=columns,
         encoding=read.get("encoding", "utf-8-sig"),
-        active_status_value=str(filters.get("active_status_value", "040")),
+        active_status_values=active_status_values,
+        classify_by=str(classification.get("classify_by", "origin")).lower(),
+        origin_pm_value=str(classification.get("origin_pm_value", "PM")),
         pm_pattern=classification.get("pm_pattern", r"\bPM\b"),
         me_pattern=classification.get("me_pattern", r"\bPM-ME\b"),
-        flag_origin_pm_mismatch=bool(classification.get("flag_origin_pm_mismatch", True)),
-        origin_pm_value=str(classification.get("origin_pm_value", "PM")),
         raw=data,
     )

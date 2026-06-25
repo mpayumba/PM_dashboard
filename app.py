@@ -82,7 +82,7 @@ def _due_table(frame, today, include_stream):
     return ordered[cols], title_col
 
 
-def render_tab(frame, today, key_prefix, *, all_view=False, full_df=None, mismatch=None):
+def render_tab(frame, today, key_prefix, *, all_view=False, full_df=None, quality=None):
     # ---- summary stats ----
     if all_view:
         k = metrics.kpi_summary(full_df, today)
@@ -136,16 +136,17 @@ def render_tab(frame, today, key_prefix, *, all_view=False, full_df=None, mismat
     )
 
     # ---- data-quality note (All tab only) ----
-    if all_view and mismatch is not None and not mismatch.empty:
-        with st.expander(f"⚠️ Data quality: {len(mismatch)} PM-origin rows whose title didn't classify as PM"):
+    if all_view and quality is not None and not quality.empty:
+        with st.expander(f"ℹ️ Data quality: {len(quality)} PMs have no PM token in their title"):
             st.caption(
-                "These have Origin = PM in the CMMS but their title lacks a clean `PM` "
-                "token (e.g. a missing space like “MonthlyPM”). They are not counted in "
-                "the PM streams and are not auto-reclassified. Fix the source titles."
+                "These are classified as PMs via the CMMS **Origin** field even though "
+                "their title contains no `PM`/`PM-ME` token (e.g. “… Monthly”, "
+                "“… Annual Calibration”). They are counted as Maintenance PMs. Consider "
+                "adding a PM/PM-ME token to the source titles for consistency."
             )
             cols = [c for c in [C.WORK_ORDER_ID, C.TITLE + "_raw", C.ASSET, C.PRIORITY, C.DUE_DATE]
-                    if c in mismatch.columns]
-            st.dataframe(mismatch[cols], width="stretch", hide_index=True)
+                    if c in quality.columns]
+            st.dataframe(quality[cols], width="stretch", hide_index=True)
 
 
 def main():
@@ -158,21 +159,25 @@ def main():
         empty_state()
         return
 
-    st.title("🛠️ Heliene PM Dashboard")
-    src = ds.source_name or "(uploaded file)"
-    st.caption(f"Source: `{src}` · {ds.report.get('rows_active', 0)} active work orders · as-of **{as_of:%Y-%m-%d}**")
-    st.sidebar.caption(f"Loaded: `{src}`")
-
     df = ds.df
     pm = df[df["is_pm"]].copy()
     maint = pm[pm["pm_stream"].astype(str) == STREAM_MAINTENANCE].copy()
     mech = pm[pm["pm_stream"].astype(str) == STREAM_MECHATRONICS].copy()
+    non_pm = int((~df["is_pm"]).sum())
+
+    st.title("🛠️ Heliene PM Dashboard")
+    src = ds.source_name or "(uploaded file)"
+    st.caption(
+        f"Source: `{src}` · **{len(pm)}** active PM work orders "
+        f"({non_pm} non-PM excluded) · as-of **{as_of:%Y-%m-%d}**"
+    )
+    st.sidebar.caption(f"Loaded: `{src}`")
 
     tab_all, tab_m, tab_e = st.tabs(
         [f"All PMs ({len(pm)})", f"Maintenance ({len(maint)})", f"Mechatronics ({len(mech)})"]
     )
     with tab_all:
-        render_tab(pm, as_of, "all", all_view=True, full_df=df, mismatch=ds.mismatch)
+        render_tab(pm, as_of, "all", all_view=True, full_df=df, quality=ds.quality)
     with tab_m:
         render_tab(maint, as_of, "maintenance")
     with tab_e:
